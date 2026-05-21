@@ -38,7 +38,13 @@ function encodeSOS(sosData: SOSData): string {
     c: new Date(sosData.createdAt).getTime(),
   }
   
-  return `SOS:${btoa(JSON.stringify(data))}`
+  const jsonStr = JSON.stringify(data);
+  // 文字列をUTF-8のバイト配列に変換
+  const bytes = new TextEncoder().encode(jsonStr);
+  // バイト配列をバイナリ文字列に変換
+  const binString = Array.from(bytes, (byte) => String.fromCharCode(byte)).join('');
+  
+  return `SOS:${btoa(binString)}`;
 }
 
 const injuryLabels: Record<string, { label: string; icon: React.ReactNode; color: string }> = {

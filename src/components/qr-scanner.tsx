@@ -17,11 +17,16 @@ import {
   MapPin
 } from 'lucide-react'
 
-// Decode SOS data from QR code
+// QRコードからSOSデータを解読する
 function decodeSOS(encoded: string): SOSData | null {
   try {
     if (!encoded.startsWith('SOS:')) return null
-    const json = atob(encoded.slice(4))
+
+    const base64Data = encoded.slice(4)
+    const binString = atob(base64Data)
+    const bytes = Uint8Array.from(binString, (char) => char.charCodeAt(0))
+    const json = new TextDecoder().decode(bytes)
+
     const data = JSON.parse(json)
     
     const situationMap: Record<number, SituationType> = {
@@ -81,7 +86,7 @@ export function QRScanner() {
 
   useEffect(() => {
     return () => {
-      // Cleanup on unmount
+      // アンマウント時のクリーンアップ
       if (readerRef.current) {
         readerRef.current.reset?.()
       }
@@ -105,7 +110,7 @@ export function QRScanner() {
         return
       }
 
-      // Prefer back camera
+      // 背面カメラを優先
       const backCamera = devices.find(d => 
         d.label.toLowerCase().includes('back') || 
         d.label.toLowerCase().includes('rear') ||
@@ -152,7 +157,7 @@ export function QRScanner() {
   const handleSaveRelay = () => {
     if (!scannedSOS) return
 
-    // Check if already in queue
+    // すでにキューに入っているか確認する
     const alreadyExists = queue.some(
       q => q.sosData.userId === scannedSOS.userId && 
            q.sosData.createdAt === scannedSOS.createdAt
@@ -181,7 +186,7 @@ export function QRScanner() {
     startScanning()
   }
 
-  // Scanned result view
+  // スキャン結果の表示
   if (scannedSOS) {
     const injury = injuryLabels[scannedSOS.injuryStatus]
     
@@ -355,7 +360,7 @@ export function QRScanner() {
           </div>
         )}
 
-        {/* Permission denied message */}
+        {/* アクセス拒否のメッセージ */}
         {cameraPermission === 'denied' && (
           <Card className="bg-warning/10 border-warning">
             <CardContent className="pt-6 text-center">
