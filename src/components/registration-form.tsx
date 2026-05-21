@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
-import { ShieldCheck, Heart, Phone, AlertTriangle, ChevronRight, User } from 'lucide-react'
+import { ShieldCheck, Heart, Send, AlertTriangle, ChevronRight, User } from 'lucide-react'
 import { LineConnect } from './line-connect'
 
 const bloodTypes = ['A型', 'B型', 'O型', 'AB型', 'わからない']
@@ -20,7 +20,7 @@ export function RegistrationForm() {
     medicalConditions: profile?.medicalConditions || '',
     emergencyName: profile?.emergencyContact.name || '',
     emergencyEmail: profile?.emergencyContact.email || '',
-    emergencyPhone: profile?.emergencyContact.phone || '',
+    emergencySend: profile?.emergencyContact.phone || '',
     emergencyLineId: profile?.emergencyContact.lineId || '',
   })
   const [isEditing, setIsEditing] = useState(!profile)
@@ -36,7 +36,7 @@ export function RegistrationForm() {
       emergencyContact: {
         name: formData.emergencyName,
         email: formData.emergencyEmail,
-        phone: formData.emergencyPhone,
+        phone: formData.emergencySend,
         lineId: formData.emergencyLineId,
       },
       registeredAt: profile?.registeredAt || new Date().toISOString(),
@@ -107,7 +107,7 @@ export function RegistrationForm() {
               )}
               <div className="pt-4 border-t">
                 <p className="text-sm text-muted-foreground mb-2 flex items-center gap-2">
-                  <Phone className="w-4 h-4" />
+                  <Send className="w-4 h-4" />
                   緊急連絡先
                 </p>
                 <div className="space-y-1 text-sm">
@@ -198,7 +198,7 @@ export function RegistrationForm() {
           <Card className="border-primary/50 bg-primary/5">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg flex items-center gap-2">
-                <Phone className="w-5 h-5 text-primary" />
+                <Send className="w-5 h-5 text-primary" />
                 SOSを届ける人
               </CardTitle>
               <CardDescription>
@@ -234,12 +234,12 @@ export function RegistrationForm() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="emergencyPhone">電話番号（任意）</Label>
+                <Label htmlFor="emergencySend">電話番号（任意）</Label>
                 <Input
-                  id="emergencyPhone"
+                  id="emergencySend"
                   type="tel"
-                  value={formData.emergencyPhone}
-                  onChange={(e) => setFormData({ ...formData, emergencyPhone: e.target.value })}
+                  value={formData.emergencySend}
+                  onChange={(e) => setFormData({ ...formData, emergencySend: e.target.value })}
                   placeholder="090-0000-0000"
                   className="tap-target"
                 />
