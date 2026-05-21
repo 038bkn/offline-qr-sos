@@ -25,7 +25,6 @@ export interface UserProfile {
   emergencyContact: {
     name: string
     email: string
-    phone: string
     lineId: string
   }
   lineConnection?: LineConnection

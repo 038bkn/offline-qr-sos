@@ -20,7 +20,6 @@ export function RegistrationForm() {
     medicalConditions: profile?.medicalConditions || '',
     emergencyName: profile?.emergencyContact.name || '',
     emergencyEmail: profile?.emergencyContact.email || '',
-    emergencySend: profile?.emergencyContact.phone || '',
     emergencyLineId: profile?.emergencyContact.lineId || '',
   })
   const [isEditing, setIsEditing] = useState(!profile)
@@ -36,7 +35,6 @@ export function RegistrationForm() {
       emergencyContact: {
         name: formData.emergencyName,
         email: formData.emergencyEmail,
-        phone: formData.emergencySend,
         lineId: formData.emergencyLineId,
       },
       registeredAt: profile?.registeredAt || new Date().toISOString(),
@@ -114,9 +112,6 @@ export function RegistrationForm() {
                   <p className="font-medium">{profile.emergencyContact.name}</p>
                   {profile.emergencyContact.email && (
                     <p className="text-muted-foreground">{profile.emergencyContact.email}</p>
-                  )}
-                  {profile.emergencyContact.phone && (
-                    <p className="text-muted-foreground">{profile.emergencyContact.phone}</p>
                   )}
                 </div>
               </div>
@@ -231,18 +226,6 @@ export function RegistrationForm() {
                 <p className="text-xs text-muted-foreground">
                   SOSはこのアドレスに送信されます
                 </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="emergencySend">電話番号（任意）</Label>
-                <Input
-                  id="emergencySend"
-                  type="tel"
-                  value={formData.emergencySend}
-                  onChange={(e) => setFormData({ ...formData, emergencySend: e.target.value })}
-                  placeholder="090-0000-0000"
-                  className="tap-target"
-                />
               </div>
             </CardContent>
           </Card>
