@@ -86,10 +86,10 @@ export function QRScanner() {
 
   useEffect(() => {
     return () => {
-      // アンマウント時のクリーンアップ
-      if (readerRef.current) {
-        readerRef.current.reset?.()
-      }
+      // アンマウント時のクリーンアップ（カメラのリセット処理はスキップ）
+      // if (readerRef.current) {
+      //   readerRef.current.reset?.()
+      // }
     }
   }, [])
 
@@ -122,7 +122,7 @@ export function QRScanner() {
       await codeReader.decodeFromVideoDevice(
         backCamera.deviceId,
         videoRef.current!,
-        (result, err) => {
+        (result) => {
           if (result) {
             const text = result.getText()
             const decoded = decodeSOS(text)
@@ -130,7 +130,7 @@ export function QRScanner() {
             if (decoded) {
               setScannedSOS(decoded)
               setIsScanning(false)
-              codeReader.reset?.()
+              // codeReader.reset?.()
             }
           }
         }
@@ -148,9 +148,9 @@ export function QRScanner() {
   }
 
   const stopScanning = () => {
-    if (readerRef.current) {
-      readerRef.current.reset?.()
-    }
+    // if (readerRef.current) {
+    //   readerRef.current.reset?.()
+    // }
     setIsScanning(false)
   }
 
