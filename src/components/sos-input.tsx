@@ -1,14 +1,15 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAppStore, type SOSData, type InjuryStatus, type SituationType, generateQueueId } from '@/lib/store'
+import { detectEnvironment } from '@/lib/detect-environment'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { 
-  MapPin, 
-  AlertTriangle, 
-  CheckCircle2, 
+import {
+  MapPin,
+  AlertTriangle,
+  CheckCircle2,
   Loader2,
   Navigation,
   User,
@@ -17,7 +18,9 @@ import {
   Droplets,
   UtensilsCrossed,
   ArrowRight,
-  RefreshCw
+  RefreshCw,
+  RefreshCcw,
+  Info,
 } from 'lucide-react'
 
 const injuryOptions: { value: InjuryStatus; label: string; icon: React.ReactNode; color: string }[] = [
@@ -35,6 +38,136 @@ const situationOptions: { value: SituationType; label: string; icon: React.React
   { value: 'needsFood', label: '食料必要', icon: <UtensilsCrossed className="w-6 h-6" /> },
 ]
 
+function LocationDeniedContent({ onClose }: { onClose: () => void }) {
+  const env = detectEnvironment()
+
+  const steps: string[] = (() => {
+    switch (env) {
+      case 'ios-safari':
+        return [
+          'ホーム画面から「⚙️ 設定」アプリを開く',
+          '「プライバシーとセキュリティ」をタップ',
+          '「位置情報サービス」→「Safariのウェブサイト」をタップ',
+          '「このアプリの使用中」を選ぶ',
+        ]
+      case 'ios-chrome':
+        return [
+          'ホーム画面から「⚙️ 設定」アプリを開く',
+          '「プライバシーとセキュリティ」をタップ',
+          '「位置情報サービス」→「Chrome」をタップ',
+          '「このアプリの使用中」を選ぶ',
+        ]
+      case 'android-chrome':
+        return [
+          '画面上部のURLバー左側にある',
+          '「権限」をタップ',
+          '「位置情報」を「許可」にする',
+          'ページを再読み込みする',
+        ]
+      case 'pc':
+        return [
+          'URLバー左側の',
+          '「位置情報」のスイッチをオンにする',
+          'ページを再読み込みする',
+        ]
+      default:
+        return [
+          'ブラウザの設定メニューから、このウェブサイトへの「位置情報」のアクセスを「許可」に変更してください。',
+        ]
+    }
+  })()
+
+  const shouldShowMapPinInStep = (step: string) =>
+    env === 'android-chrome' && step.includes('URLバー')
+
+  const shouldShowInfoInStep = (step: string) =>
+    env === 'pc' && step.includes('URLバー')
+
+  const canReload = env === 'android-chrome' || env === 'pc' || env === 'fallback'
+  const canOpenSettings = env === 'ios-safari' || env === 'ios-chrome'
+
+  const handleOpenSettings = () => {
+    window.location.href = 'App-Prefs:root=Privacy&path=LOCATION'
+  }
+
+  const handleReload = () => {
+    window.location.reload()
+  }
+
+  return (
+    <>
+      <div className="w-20 h-20 mx-auto rounded-full bg-destructive/10 flex items-center justify-center">
+        <AlertTriangle className="w-10 h-10 text-destructive" />
+      </div>
+
+      <div className="text-center">
+        <h2 className="text-xl font-bold text-foreground">
+          位置情報がブロックされています
+        </h2>
+        <p className="text-muted-foreground mt-2 text-sm">
+          以下の手順で位置情報の使用を許可してください
+        </p>
+      </div>
+
+      <div className="bg-muted/50 rounded-xl p-4 space-y-2 text-sm text-foreground">
+        {steps.map((step, i) => (
+          <div key={step} className="flex items-start gap-2">
+            {steps.length > 1 && (
+              <span className="shrink-0 font-bold text-muted-foreground">
+                {i + 1}.
+              </span>
+            )}
+            <p>
+              {shouldShowMapPinInStep(step) ? (
+                <>
+                  {step}
+                  <MapPin className="inline-block w-4 h-4 mx-1 align-middle text-foreground" />
+                  をタップ
+                </>
+              ) : shouldShowInfoInStep(step) ? (
+                <>
+                  {step}
+                  <Info className="inline-block w-4 h-4 mx-1 align-middle text-foreground" />
+                  をクリック
+                </>
+              ) : (
+                step
+              )}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      <div className="space-y-3">
+        {canOpenSettings && (
+          <Button
+            onClick={handleOpenSettings}
+            className="w-full h-12 font-bold tap-target"
+          >
+            設定アプリを開く
+          </Button>
+        )}
+        {canReload && (
+          <Button
+            onClick={handleReload}
+            className="w-full h-12 font-bold tap-target"
+          >
+            <RefreshCcw className="w-4 h-4 mr-2" />
+            再読み込みする
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          onClick={onClose}
+          className="w-full text-muted-foreground"
+        >
+          閉じる
+        </Button>
+      </div>
+    </>
+  )
+}
+
 export function SOSInput() {
   const { profile, setCurrentSOS, setCurrentView, addToQueue, mode } = useAppStore()
   const [injuryStatus, setInjuryStatus] = useState<InjuryStatus>('safe')
@@ -44,30 +177,11 @@ export function SOSInput() {
   const [isGettingLocation, setIsGettingLocation] = useState(false)
   const [locationError, setLocationError] = useState<string | null>(null)
   const [showLocationPrompt, setShowLocationPrompt] = useState(false)
+  const [locationPermission, setLocationPermission] = useState<PermissionState | null>(null)
 
   const isEmergencyMode = mode === 'emergency'
 
-  useEffect(() => {
-    // Auto-show location prompt on mount in emergency mode
-    if (isEmergencyMode && !location) {
-      setShowLocationPrompt(true)
-    }
-  }, [isEmergencyMode, location])
-
-  const handleLocationPromptConfirm = () => {
-    setShowLocationPrompt(false)
-    getLocation()
-  }
-
-  const handleRequestLocation = () => {
-    if (!location) {
-      setShowLocationPrompt(true)
-    } else {
-      getLocation()
-    }
-  }
-
-  const getLocation = async () => {
+  const getLocation = useCallback(async () => {
     setIsGettingLocation(true)
     setLocationError(null)
 
@@ -87,10 +201,52 @@ export function SOSInput() {
         timestamp: new Date().toISOString(),
       })
     } catch (error) {
-      console.error('[v0] Location error:', error)
-      setLocationError('位置情報を取得できませんでした')
+      const geoError = error as GeolocationPositionError
+      if (geoError.code === 1) {
+        setLocationPermission('denied')
+        setShowLocationPrompt(true)
+      } else {
+        setLocationError('位置情報を取得できませんでした')
+      }
     } finally {
       setIsGettingLocation(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!navigator.permissions) return
+    navigator.permissions.query({ name: 'geolocation' }).then((result) => {
+      setLocationPermission(result.state)
+      result.addEventListener('change', () => setLocationPermission(result.state))
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!isEmergencyMode || location || locationPermission === null) return
+    const id = setTimeout(() => {
+      if (locationPermission === 'granted') {
+        getLocation()
+      } else {
+        setShowLocationPrompt(true)
+      }
+    }, 0)
+    return () => clearTimeout(id)
+  }, [isEmergencyMode, location, locationPermission, getLocation])
+
+  const handleLocationPromptConfirm = () => {
+    setShowLocationPrompt(false)
+    getLocation()
+  }
+
+  const handleRequestLocation = () => {
+    if (location) {
+      getLocation()
+      return
+    }
+    if (locationPermission === 'granted') {
+      getLocation()
+    } else {
+      setShowLocationPrompt(true)
     }
   }
 
@@ -117,7 +273,6 @@ export function SOSInput() {
 
     setCurrentSOS(sosData)
 
-    // Also add to queue immediately
     addToQueue({
       id: generateQueueId(),
       sosData,
@@ -135,63 +290,69 @@ export function SOSInput() {
       {showLocationPrompt && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80">
           <div className="bg-card rounded-2xl max-w-sm w-full p-6 space-y-5 shadow-2xl border">
-            {/* Icon */}
-            <div className="w-20 h-20 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
-              <MapPin className="w-10 h-10 text-primary" />
-            </div>
-            
-            {/* Title */}
-            <div className="text-center">
-              <h2 className="text-xl font-bold text-foreground">
-                位置情報の許可が必要です
-              </h2>
-              <p className="text-muted-foreground mt-2">
-                あなたの居場所を救助者に伝えるために使用します
-              </p>
-            </div>
-
-            {/* Instruction Box */}
-            <div className="bg-safe/10 border border-safe/30 rounded-xl p-4">
-              <p className="text-center text-foreground mb-3">
-                このあと表示されるメッセージで
-              </p>
-              <div className="flex items-center justify-center gap-3">
-                <div className="bg-safe text-safe-foreground px-5 py-3 rounded-lg font-bold text-xl shadow-lg">
-                  許可
+            {locationPermission === 'denied' ? (
+              <LocationDeniedContent onClose={() => setShowLocationPrompt(false)} />
+            ) : (
+              <>
+                {/* Icon */}
+                <div className="w-20 h-20 mx-auto rounded-full bg-primary/10 flex items-center justify-center">
+                  <MapPin className="w-10 h-10 text-primary" />
                 </div>
-                <span className="text-foreground font-bold">をタップ</span>
-              </div>
-            </div>
 
-            {/* Visual hint - mock browser dialog */}
-            <div className="bg-muted/50 rounded-lg p-3 border border-dashed">
-              <p className="text-xs text-muted-foreground text-center mb-2">こんなメッセージが出ます</p>
-              <div className="bg-background rounded border p-2 text-xs">
-                <p className="text-foreground mb-2">「位置情報の使用を許可しますか？」</p>
-                <div className="flex gap-2 justify-end">
-                  <span className="px-2 py-1 bg-muted rounded text-muted-foreground">ブロック</span>
-                  <span className="px-2 py-1 bg-safe text-safe-foreground rounded font-bold">許可</span>
+                {/* Title */}
+                <div className="text-center">
+                  <h2 className="text-xl font-bold text-foreground">
+                    位置情報の許可が必要です
+                  </h2>
+                  <p className="text-muted-foreground mt-2">
+                    あなたの居場所を救助者に伝えるために使用します
+                  </p>
                 </div>
-              </div>
-            </div>
 
-            {/* Buttons */}
-            <div className="space-y-3">
-              <Button
-                onClick={handleLocationPromptConfirm}
-                className="w-full h-14 text-lg font-bold tap-target"
-              >
-                <Navigation className="w-5 h-5 mr-2" />
-                わかりました
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => setShowLocationPrompt(false)}
-                className="w-full text-muted-foreground"
-              >
-                あとで設定する
-              </Button>
-            </div>
+                {/* Instruction Box */}
+                <div className="bg-safe/10 border border-safe/30 rounded-xl p-4">
+                  <p className="text-center text-foreground mb-3">
+                    このあと表示されるメッセージで
+                  </p>
+                  <div className="flex items-center justify-center gap-3">
+                    <div className="bg-safe text-safe-foreground px-5 py-3 rounded-lg font-bold text-xl shadow-lg">
+                      許可
+                    </div>
+                    <span className="text-foreground font-bold">をタップ</span>
+                  </div>
+                </div>
+
+                {/* Visual hint - mock browser dialog */}
+                <div className="bg-muted/50 rounded-lg p-3 border border-dashed">
+                  <p className="text-xs text-muted-foreground text-center mb-2">こんなメッセージが出ます</p>
+                  <div className="bg-background rounded border p-2 text-xs">
+                    <p className="text-foreground mb-2">「位置情報の使用を許可しますか？」</p>
+                    <div className="flex gap-2 justify-end">
+                      <span className="px-2 py-1 bg-muted rounded text-muted-foreground">ブロック</span>
+                      <span className="px-2 py-1 bg-safe text-safe-foreground rounded font-bold">許可</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Buttons */}
+                <div className="space-y-3">
+                  <Button
+                    onClick={handleLocationPromptConfirm}
+                    className="w-full h-14 text-lg font-bold tap-target"
+                  >
+                    <Navigation className="w-5 h-5 mr-2" />
+                    わかりました
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setShowLocationPrompt(false)}
+                    className="w-full text-muted-foreground"
+                  >
+                    あとで設定する
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
