@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { db } from './db'
 
 export type InjuryStatus = 'safe' | 'minor' | 'severe'
 
@@ -70,10 +70,10 @@ interface AppState {
   
   // User Profile
   profile: UserProfile | null
-  setProfile: (profile: UserProfile) => void
-  clearProfile: () => void
-  setLineConnection: (connection: LineConnection) => void
-  clearLineConnection: () => void
+  setProfile: (profile: UserProfile) => Promise<void>
+  clearProfile: () => Promise<void>
+  setLineConnection: (connection: LineConnection) => Promise<void>
+  clearLineConnection: () => Promise<void>
   
   // Current SOS (being created)
   currentSOS: SOSData | null
@@ -82,9 +82,9 @@ interface AppState {
   
   // SOS Queue (own + relayed)
   queue: QueuedSOS[]
-  addToQueue: (sos: QueuedSOS) => void
-  updateQueueItem: (id: string, updates: Partial<QueuedSOS>) => void
-  removeFromQueue: (id: string) => void
+  addToQueue: (sos: QueuedSOS) => Promise<void>
+  updateQueueItem: (id: string, updates: Partial<QueuedSOS>) => Promise<void>
+  removeFromQueue: (id: string) => Promise<void>
   
   // Network status
   isOnline: boolean
@@ -103,50 +103,103 @@ export const generateQueueId = () => {
   return `Q-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
 }
 
-export const useAppStore = create<AppState>()(
-  persist(
-    (set) => ({
-      // Initial state
-      mode: 'peacetime',
-      setMode: (mode) => set({ mode }),
-      
-      currentView: 'registration',
-      setCurrentView: (view) => set({ currentView: view }),
-      
-      profile: null,
-      setProfile: (profile) => set({ profile }),
-      clearProfile: () => set({ profile: null }),
-      setLineConnection: (connection) => set((state) => ({
-        profile: state.profile ? { ...state.profile, lineConnection: connection } : null
-      })),
-      clearLineConnection: () => set((state) => ({
-        profile: state.profile ? { ...state.profile, lineConnection: undefined } : null
-      })),
-      
-      currentSOS: null,
-      setCurrentSOS: (sos) => set({ currentSOS: sos }),
-      updateCurrentSOS: (updates) => set((state) => ({
-        currentSOS: state.currentSOS ? { ...state.currentSOS, ...updates } : null
-      })),
-      
-      queue: [],
-      addToQueue: (sos) => set((state) => ({
-        queue: [...state.queue, sos]
-      })),
-      updateQueueItem: (id, updates) => set((state) => ({
-        queue: state.queue.map((item) =>
-          item.id === id ? { ...item, ...updates } : item
-        )
-      })),
-      removeFromQueue: (id) => set((state) => ({
-        queue: state.queue.filter((item) => item.id !== id)
-      })),
-      
-      isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
-      setIsOnline: (online) => set({ isOnline: online }),
-    }),
-    {
-      name: 'sos-relay-app-storage',
+interface AppState {
+  mode: AppMode
+  setMode: (mode: AppMode) => void
+  currentView: ViewMode
+  setCurrentView: (view: ViewMode) => void
+  profile: UserProfile | null
+  setProfile: (profile: UserProfile) => Promise<void> // Promiseに変更
+  clearProfile: () => Promise<void>
+  setLineConnection: (connection: LineConnection) => Promise<void>
+  clearLineConnection: () => Promise<void>
+  currentSOS: SOSData | null
+  setCurrentSOS: (sos: SOSData | null) => void
+  updateCurrentSOS: (updates: Partial<SOSData>) => void
+  queue: QueuedSOS[]
+  addToQueue: (sos: QueuedSOS) => Promise<void> // Promiseに変更
+  updateQueueItem: (id: string, updates: Partial<QueuedSOS>) => Promise<void>
+  removeFromQueue: (id: string) => Promise<void>
+  isOnline: boolean
+  setIsOnline: (online: boolean) => void
+  initFromDB: () => Promise<void> // DBから読み込むための関数を追加
+}
+
+// useAppStore を persist なしで再定義し、内部で Dexie(db) を操作する
+export const useAppStore = create<AppState>()((set, get) => ({
+  mode: 'peacetime',
+  setMode: (mode) => set({ mode }),
+  
+  currentView: 'registration',
+  setCurrentView: (view) => set({ currentView: view }),
+  
+  profile: null,
+  setProfile: async (profile) => {
+    await db.myProfile.put(profile) // データベースに保存
+    set({ profile }) // 画面にも反映
+  },
+  clearProfile: async () => {
+    await db.myProfile.clear() // データベースから削除
+    set({ profile: null })
+  },
+  setLineConnection: async (connection) => {
+    const profile = get().profile
+    if (profile) {
+      const updated = { ...profile, lineConnection: connection }
+      await db.myProfile.put(updated)
+      set({ profile: updated })
     }
-  )
-)
+  },
+  clearLineConnection: async () => {
+    const profile = get().profile
+    if (profile) {
+      const updated = { ...profile, lineConnection: undefined }
+      await db.myProfile.put(updated)
+      set({ profile: updated })
+    }
+  },
+  
+  currentSOS: null,
+  setCurrentSOS: (sos) => set({ currentSOS: sos }),
+  updateCurrentSOS: (updates) => set((state) => ({
+    currentSOS: state.currentSOS ? { ...state.currentSOS, ...updates } : null
+  })),
+  
+  queue: [],
+  addToQueue: async (sos) => {
+    await db.sosQueue.put(sos) // データベースに保存
+    set((state) => ({ queue: [...state.queue, sos] }))
+  },
+  updateQueueItem: async (id, updates) => {
+    await db.sosQueue.update(id, updates) // データベースを更新
+    set((state) => ({
+      queue: state.queue.map((item) =>
+        item.id === id ? { ...item, ...updates } : item
+      )
+    }))
+  },
+  removeFromQueue: async (id) => {
+    await db.sosQueue.delete(id) // データベースから削除
+    set((state) => ({
+      queue: state.queue.filter((item) => item.id !== id)
+    }))
+  },
+  
+  isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
+  setIsOnline: (online) => set({ isOnline: online }),
+
+  // アプリ起動時にDexieデータベースからデータを一気に読み込む関数
+  initFromDB: async () => {
+    const profiles = await db.myProfile.toArray()
+    const profile = profiles.length > 0 ? profiles[0] : null
+    const queue = await db.sosQueue.toArray()
+    
+    set({ 
+      profile, 
+      queue,
+      // 登録の有無に関わらず、最初は共通のメイン画面（'registration'）を開く
+      // (※コンポーネント側がprofileの有無を検知して、フォームかホームかを自動で出し分ける)
+      currentView: profile ? 'registration' : 'registration' 
+    })
+  }
+}))
