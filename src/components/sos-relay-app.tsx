@@ -11,14 +11,17 @@ import { BottomNav } from '@/components/bottom-nav'
 import { NetworkStatus } from '@/components/network-status'
 
 export default function SOSRelayApp() {
-  const { currentView, mode, profile } = useAppStore()
-  const [mounted, setMounted] = useState(false)
+  const { currentView, mode, profile, initFromDB } = useAppStore()
+  const [isLoading, setIsLoading] = useState(true)
 
+  // アプリ起動時に IndexedDB からデータを読み込む
   useEffect(() => {
-    setMounted(true)
-  }, [])
+    initFromDB().then(() => {
+      setIsLoading(false)
+    })
+  }, [initFromDB])
 
-  // Apply dark mode class based on app mode
+  // 緊急モードに応じてダークモードを切り替える
   useEffect(() => {
     if (mode === 'emergency') {
       document.documentElement.classList.add('dark')
@@ -27,22 +30,22 @@ export default function SOSRelayApp() {
     }
   }, [mode])
 
-  // Handle initial view based on profile status
-  useEffect(() => {
-    if (mounted && !profile && currentView !== 'registration') {
-      useAppStore.getState().setCurrentView('registration')
-    }
-  }, [mounted, profile, currentView])
-
-  if (!mounted) {
+  // データベース読み込み中はローディング画面を表示
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="animate-pulse text-muted-foreground">読み込み中...</div>
+        <div className="animate-pulse text-muted-foreground font-bold">データベースを読み込み中...</div>
       </div>
     )
   }
 
+  // 画面の出し分け処理
   const renderView = () => {
+    // 読み込み完了後、プロフィールが無ければ無条件で登録画面を出す
+    if (!profile) {
+      return <RegistrationForm />
+    }
+
     switch (currentView) {
       case 'registration':
         return <RegistrationForm />

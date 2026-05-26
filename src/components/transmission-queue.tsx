@@ -2,7 +2,7 @@
 
 import { useAppStore } from '@/lib/store'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { 
   ArrowLeft, 
   CheckCircle2, 
@@ -25,26 +25,15 @@ const injuryLabels: Record<string, { label: string; icon: React.ReactNode; color
 }
 
 export function TransmissionQueue() {
-  const { queue, removeFromQueue, setCurrentView, mode, isOnline, updateQueueItem } = useAppStore()
+  const { queue, removeFromQueue, setCurrentView, mode, isOnline, sendAllPendingItems } = useAppStore()
   
   const isEmergencyMode = mode === 'emergency'
 
   const ownSOS = queue.filter(q => q.isOwn)
   const relayedSOS = queue.filter(q => !q.isOwn)
 
-  // Simulate sending when online
   const handleSendAll = () => {
-    queue.forEach(item => {
-      if (item.status === 'pending') {
-        // In a real app, this would send to server
-        setTimeout(() => {
-          updateQueueItem(item.id, { 
-            status: 'sent',
-            sentAt: new Date().toISOString()
-          })
-        }, 1000)
-      }
-    })
+    sendAllPendingItems()
   }
 
   const pendingCount = queue.filter(q => q.status === 'pending').length
