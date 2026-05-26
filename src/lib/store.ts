@@ -1,5 +1,8 @@
 import { create } from 'zustand'
 import { db } from './db'
+import { fDB, fAuth } from './firebase'
+import { signInAnonymously } from 'firebase/auth'
+import { collection, doc, setDoc } from 'firebase/firestore'
 
 export type InjuryStatus = 'safe' | 'minor' | 'severe'
 
@@ -196,6 +199,14 @@ export const useAppStore = create<AppState>()((set, get) => ({
       currentView: profile ? 'registration' : 'registration' 
     })
 
+    // アプリが起動した瞬間に、Firebaseへの匿名ログイン
+    try {
+      await signInAnonymously(fAuth)
+      console.log("[Firebase] 匿名ログインに成功")
+    } catch (err) {
+      console.error("[Firebase] 匿名ログイン失敗：", err)
+    }
+
     // 起動時にすでにオンライン、かつ未送信があるなら自動送信
     if (navigator.onLine && queue.some(q => q.status === 'pending')) {
       get().sendAllPendingItems()
@@ -209,9 +220,35 @@ export const useAppStore = create<AppState>()((set, get) => ({
     
     if (pendingItems.length === 0) return
 
-    console.log(`[SOSリレー同期開始] オンライン復帰を検知。${pendingItems.length}件のSOSを自動送信します...`)
+    console.log(`[同期開始] オンライン復帰を検知。Firebaseへ${pendingItems.length}件のSOSを送信します...`)
 
     for (const item of pendingItems) {
+      try {
+        // Firebase Firestore の「sos_signals」テーブルに送信
+        await setDoc(doc(collection(fDB, "sos_signals"), item.id), {
+          id: item.id,
+          status: "sent", 
+          isOwn: item.isOwn,
+          relayedFrom: item.relayedFrom || "unknown", 
+          createdAt: item.createdAt, 
+          sentAt: new Date().toISOString(),
+          // SOSのコアデータ（名前、GPS、ケガの状況、メモなどすべて）
+          sosData: item.sosData
+        })
+
+        // クラウドへの送信が成功したら、スマホ内の IndexedDB も「送信済み」に書き換える
+        await updateQueueItem(item.id, {
+          status: 'sent',
+          sentAt: new Date().toISOString()
+        })
+
+        console.log(`[動機成功] ${item.sosData.userName}さんのSOSが、サーバーに届きました！`)
+
+      } catch (error) {
+        console.error(`[同期エラー] ID: ${item.id} の送信に失敗しました：`, error)
+        // 失敗した場合は pending のままになるため、電波が良くなったら次回また自動再送されます
+      }
+
       // 送信中のカクつき防止と、見栄えのために1.2秒のディレイを挟む
       await new Promise(resolve => setTimeout(resolve, 1200))
       
