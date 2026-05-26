@@ -89,9 +89,12 @@ interface AppState {
   // Network status
   isOnline: boolean
   setIsOnline: (online: boolean) => void
+
+  initFromDB: () => Promise<void> // DBから読み込むための関数を追加
+  sendAllPendingItems: () => Promise<void> // 自動送信アクション
 }
 
-// Generate unique ID
+// ユーザー識別用ランダムID生成
 export const generateId = () => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
   const prefix = 'U'
@@ -99,30 +102,9 @@ export const generateId = () => {
   return `${prefix}-${code}`
 }
 
+// キュー用ユニークID生成
 export const generateQueueId = () => {
   return `Q-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-}
-
-interface AppState {
-  mode: AppMode
-  setMode: (mode: AppMode) => void
-  currentView: ViewMode
-  setCurrentView: (view: ViewMode) => void
-  profile: UserProfile | null
-  setProfile: (profile: UserProfile) => Promise<void> // Promiseに変更
-  clearProfile: () => Promise<void>
-  setLineConnection: (connection: LineConnection) => Promise<void>
-  clearLineConnection: () => Promise<void>
-  currentSOS: SOSData | null
-  setCurrentSOS: (sos: SOSData | null) => void
-  updateCurrentSOS: (updates: Partial<SOSData>) => void
-  queue: QueuedSOS[]
-  addToQueue: (sos: QueuedSOS) => Promise<void> // Promiseに変更
-  updateQueueItem: (id: string, updates: Partial<QueuedSOS>) => Promise<void>
-  removeFromQueue: (id: string) => Promise<void>
-  isOnline: boolean
-  setIsOnline: (online: boolean) => void
-  initFromDB: () => Promise<void> // DBから読み込むための関数を追加
 }
 
 // useAppStore を persist なしで再定義し、内部で Dexie(db) を操作する
@@ -169,6 +151,10 @@ export const useAppStore = create<AppState>()((set, get) => ({
   addToQueue: async (sos) => {
     await db.sosQueue.put(sos) // データベースに保存
     set((state) => ({ queue: [...state.queue, sos] }))
+    // もしSOS作成/追加時にオンラインなら、即座に自動送信を試みる
+    if (get().isOnline) {
+      get().sendAllPendingItems()
+    }
   },
   updateQueueItem: async (id, updates) => {
     await db.sosQueue.update(id, updates) // データベースを更新
@@ -186,7 +172,15 @@ export const useAppStore = create<AppState>()((set, get) => ({
   },
   
   isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
-  setIsOnline: (online) => set({ isOnline: online }),
+  setIsOnline: (online) => {
+    const wasOffline = !get().isOnline
+    set({ isOnline: online })
+
+    // オフラインからオンラインに復帰した瞬間、自動送信を開始
+    if (online && wasOffline) {
+      get().sendAllPendingItems()
+    }
+  },
 
   // アプリ起動時にDexieデータベースからデータを一気に読み込む関数
   initFromDB: async () => {
@@ -201,5 +195,32 @@ export const useAppStore = create<AppState>()((set, get) => ({
       // (※コンポーネント側がprofileの有無を検知して、フォームかホームかを自動で出し分ける)
       currentView: profile ? 'registration' : 'registration' 
     })
+
+    // 起動時にすでにオンライン、かつ未送信があるなら自動送信
+    if (navigator.onLine && queue.some(q => q.status === 'pending')) {
+      get().sendAllPendingItems()
+    }
+  },
+
+  // 溜まっているSOSデータを自動で順番に送信する関数
+  sendAllPendingItems: async () => {
+    const { queue, updateQueueItem } = get()
+    const pendingItems = queue.filter(item => item.status === 'pending')
+    
+    if (pendingItems.length === 0) return
+
+    console.log(`[SOSリレー同期開始] オンライン復帰を検知。${pendingItems.length}件のSOSを自動送信します...`)
+
+    for (const item of pendingItems) {
+      // 送信中のカクつき防止と、見栄えのために1.2秒のディレイを挟む
+      await new Promise(resolve => setTimeout(resolve, 1200))
+      
+      await updateQueueItem(item.id, {
+        status: 'sent',
+        sentAt: new Date().toISOString()
+      })
+      
+      console.log(`[SOSリレー] ID: ${item.id} (${item.sosData.userName}さんのSOS) を自動送信しました。`)
+    }
   }
 }))
