@@ -154,29 +154,9 @@ export const useAppStore = create<AppState>()((set, get) => ({
   addToQueue: async (sos) => {
     await db.sosQueue.put(sos) // データベースに保存
     set((state) => ({ queue: [...state.queue, sos] }))
-
     // もしSOS作成/追加時にオンラインなら、即座に自動送信を試みる
     if (get().isOnline) {
       get().sendAllPendingItems()
-    } else {
-      // もしオフラインなら、ブラウザ(OS)に「通信復帰時にバックグラウンド同期して！」と予約する
-      if ('serviceWorker' in navigator && 'SyncManager' in window) {
-        try {
-          interface serviceWorkerRegistrationWithSync extends ServiceWorkerRegistration {
-            sync: {
-              register(tag: string): Promise<void>;
-            };
-          }
-
-          const registration = (await navigator.serviceWorker.ready) as unknown as serviceWorkerRegistrationWithSync;
-          
-          // 'sync-sos-queue' という名前でタスクをOSに登録
-          await registration.sync.register('sync-sos-queue');
-          console.log('[Background Sync] 自動送信予約に成功')
-        } catch (err) {
-          console.error('[Background Sync] 自動送信予約に失敗:', err);
-        }
-      }
     }
   },
   updateQueueItem: async (id, updates) => {
