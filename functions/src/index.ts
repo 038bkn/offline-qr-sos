@@ -1,8 +1,8 @@
 import { onDocumentCreated } from 'firebase-functions/v2/firestore'
 import * as logger from 'firebase-functions/logger'
 
-const LINE_ACCESS_TOKEN = "/yLWPgf7yHWfn62/PpeUACn/GyWxGOMZtMUKUXjrsghHtW5YpwsPyWtEHlJqJRZkFONdB6qNowZykFKKzlnib8P2li/jDYhpPbJ5VlxJ3VzZM5KBCtZ45AmOyEpUIwwjVWrlpQwlG0ESQlCQ0UnZKgdB04t89/1O/w1cDnyilFU=";
-const TARGET_LINE_USER_ID = "U5752721898152644984ba9f1f31542a2";
+const LINE_ACCESS_TOKEN = process.env.LINE_ACCESS_TOKEN || "";
+const TARGET_LINE_USER_ID = process.env.LINE_ACCESS_TOKEN || "";
 
 // Firestoreの「sos_signals」コレクションに新しいデータ（SOS）が作成された瞬間、自動起動する関数
 export const onNewSOSCreated = onDocumentCreated("sos_signals/{signalId}", async (event) => {
