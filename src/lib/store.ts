@@ -4,6 +4,8 @@ import { fDB, fAuth } from './firebase'
 import { signInAnonymously } from 'firebase/auth'
 import { collection, doc, setDoc } from 'firebase/firestore'
 
+const FUNCTIONS_API_URL = " https://us-central1-sos-relay-app.cloudfunctions.net/exchangeLineCodeApi";
+
 export type InjuryStatus = 'safe' | 'minor' | 'severe'
 
 export type SituationType = 
@@ -78,6 +80,9 @@ interface AppState {
   setLineConnection: (connection: LineConnection) => Promise<void>
   clearLineConnection: () => Promise<void>
   
+  // LINEログインを実行する関数
+  linkLineAccount: (code: string, redirectUrl: string) => Promise<void>
+  
   // Current SOS (being created)
   currentSOS: SOSData | null
   setCurrentSOS: (sos: SOSData | null) => void
@@ -143,6 +148,38 @@ export const useAppStore = create<AppState>()((set, get) => ({
       set({ profile: updated })
     }
   },
+
+  // LINEから返ってきた一次コードをサーバーに送って、名前とIDを貰って保存する処理
+  linkLineAccount: async (code, redirectUrl) => {
+    const res = await fetch(FUNCTIONS_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, redirectUrl })
+    })
+    
+    if (!res.ok) {
+      throw new Error('LINE連携の通信に失敗しました')
+    }
+    
+    const data = await res.json() as { userId: string; displayName: string; pictureUrl?: string }
+    
+    const connection: LineConnection = {
+      linkedId: data.userId,
+      linkedAt: new Date().toISOString(),
+      displayName: data.displayName,
+    }
+
+    const profile = get().profile
+    if (profile) {
+      const updated = { 
+        ...profile, 
+        lineConnection: connection,
+        name: profile.name || data.displayName // プロフィール名が空ならLINE名を自動セット
+      }
+      await db.myProfile.put(updated)
+      set({ profile: updated })
+    }
+  },
   
   currentSOS: null,
   setCurrentSOS: (sos) => set({ currentSOS: sos }),
@@ -154,17 +191,28 @@ export const useAppStore = create<AppState>()((set, get) => ({
   addToQueue: async (sos) => {
     await db.sosQueue.put(sos) // データベースに保存
     set((state) => ({ queue: [...state.queue, sos] }))
-    // もしSOS作成/追加時にオンラインなら、即座に自動送信を試みる
+    // もしSOS作成/追加時にオンラインなら、自動送信を試みる
     if (get().isOnline) {
       get().sendAllPendingItems()
+    } else {
+      if ('serviceWorker' in navigator && 'SyncManager' in window) {
+        try {
+          interface serviceWorkerRegistrationWithSync extends ServiceWorkerRegistration {
+            sync: { register(tag: string): Promise<void> };
+          }
+          const registration = (await navigator.serviceWorker.ready) as unknown as serviceWorkerRegistrationWithSync;
+          await registration.sync.register('sync-sos-queue');
+          console.log('[Background Sync] 自動送信予約に成功')
+        } catch (err) {
+          console.error('[Background Sync] 自動送信予約に失敗:', err);
+        }
+      }
     }
   },
   updateQueueItem: async (id, updates) => {
     await db.sosQueue.update(id, updates) // データベースを更新
     set((state) => ({
-      queue: state.queue.map((item) =>
-        item.id === id ? { ...item, ...updates } : item
-      )
+      queue: state.queue.map((item) => item.id === id ? { ...item, ...updates } : item)
     }))
   },
   removeFromQueue: async (id) => {
@@ -194,9 +242,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
     set({ 
       profile, 
       queue,
-      // 登録の有無に関わらず、最初は共通のメイン画面（'registration'）を開く
-      // (※コンポーネント側がprofileの有無を検知して、フォームかホームかを自動で出し分ける)
-      currentView: profile ? 'registration' : 'registration' 
+      currentView: 'registration' 
     })
 
     // アプリが起動した瞬間に、Firebaseへの匿名ログイン
@@ -236,28 +282,17 @@ export const useAppStore = create<AppState>()((set, get) => ({
           sosData: item.sosData
         })
 
+        await new Promise(resolve => setTimeout(resolve, 1200))
+
         // クラウドへの送信が成功したら、スマホ内の IndexedDB も「送信済み」に書き換える
         await updateQueueItem(item.id, {
           status: 'sent',
           sentAt: new Date().toISOString()
         })
-
-        console.log(`[動機成功] ${item.sosData.userName}さんのSOSが、サーバーに届きました！`)
-
+        console.log(`[同期成功] ${item.sosData.userName}さんのSOSが、サーバーに届きました！`)
       } catch (error) {
         console.error(`[同期エラー] ID: ${item.id} の送信に失敗しました：`, error)
-        // 失敗した場合は pending のままになるため、電波が良くなったら次回また自動再送されます
       }
-
-      // 送信中のカクつき防止と、見栄えのために1.2秒のディレイを挟む
-      await new Promise(resolve => setTimeout(resolve, 1200))
-      
-      await updateQueueItem(item.id, {
-        status: 'sent',
-        sentAt: new Date().toISOString()
-      })
-      
-      console.log(`[SOSリレー] ID: ${item.id} (${item.sosData.userName}さんのSOS) を自動送信しました。`)
     }
   }
 }))
