@@ -11,10 +11,11 @@ const LINE_LOGIN_CHANNEL_ID = import.meta.env.VITE_LINE_LOGIN_CHANNEL_ID || "";
 export function LineConnect() {
   const { profile, clearLineConnection } = useAppStore()
 
-  // 💡 【修正ポイント①】
-  // 最初からURLをチェックし、LINEから戻ってきた直後なら最初から isLoading を true にしておく！
   const [isLoading, setIsLoading] = useState(() => {
     if (typeof window !== 'undefined') {
+      // 💡
+      // もし自分が「子ウィンドウ（ポップアップ）」として開かれているなら、ローディングを出さない
+      if (window.opener) return false;
       const searchParams = new URLSearchParams(window.location.search)
       return !!(searchParams.get('code') && searchParams.get('state') === 'sos-relay-login-state')
     }
@@ -24,6 +25,7 @@ export function LineConnect() {
 
   const isLinked = !!profile?.lineConnection
 
+  // ① ボタンを押した時の処理
   const handleLineLogin = useCallback(() => {
     setIsLoading(true)
     setError('')
@@ -38,29 +40,69 @@ export function LineConnect() {
       scope: 'profile openid',
     }).toString()
 
-    window.location.href = lineAuthUrl
+    // 💡 【PWA対策】直接画面を切り替えるのではなく「別窓（ポップアップ）」としてLINEを開く！
+    const popup = window.open(lineAuthUrl, 'line_login', 'width=500,height=600');
+
+    // もしスマホの設定等でポップアップがブロックされた場合の保険（従来の直接遷移）
+    if (!popup) {
+      window.location.href = lineAuthUrl;
+      return;
+    }
+
+    // 💡 子画面（ポップアップ）から「ログイン成功したよ！」という手紙（メッセージ）が届くのを待つ
+    const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return; // セキュリティチェック
+
+      if (event.data?.type === 'LINE_LOGIN_SUCCESS' && event.data?.code) {
+        window.removeEventListener('message', handleMessage);
+        
+        // メッセージに入っていた連携コードを使って、裏側でサーバー通信を行う
+        useAppStore.getState().linkLineAccount(event.data.code, redirectUrl)
+          .catch((err: unknown) => {
+            setError(err instanceof Error ? err.message : '連携中にエラーが発生しました')
+          })
+          .finally(() => {
+            setIsLoading(false)
+          })
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+
+    // ユーザーが途中でポップアップの「✖」を押して閉じてしまった場合の検知
+    const timer = setInterval(() => {
+      if (popup.closed) {
+        clearInterval(timer);
+        setIsLoading(false);
+        window.removeEventListener('message', handleMessage);
+      }
+    }, 1000);
   }, [])
 
+  // ② LINEから戻ってきた時の処理
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search)
     const code = searchParams.get('code')
     const state = searchParams.get('state')
 
     if (code && state === 'sos-relay-login-state') {
-      // 💡 【修正ポイント②】
-      // ここで setIsLoading(true) を呼ぶとエラーになるため削除。
-      // 初期値ですでに true になっているので、そのまま処理を進めるだけでOK！
-      
+      // 💡 【PWA対策】自分が「子ウィンドウ（ポップアップ）」として開かれているかチェック！
+      if (window.opener) {
+        // 親（PWA本体）に向かってコードを投げ渡し、自分自身（Chrome等）は閉じる！
+        window.opener.postMessage({ type: 'LINE_LOGIN_SUCCESS', code }, window.location.origin);
+        window.close();
+        return; // これ以上は処理しない
+      }
+
+      // もし親がいない（フォールバックの直接遷移）なら、今まで通りの処理
       const redirectUrl = window.location.origin + window.location.pathname
       window.history.replaceState({}, document.title, window.location.pathname)
 
       useAppStore.getState().linkLineAccount(code, redirectUrl)
         .catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : '連携中にエラーが発生しました'
-          setError(msg)
+          setError(err instanceof Error ? err.message : '連携中にエラーが発生しました')
         })
         .finally(() => {
-          // 終わったら false に戻す（これは非同期処理の後なのでエラーにならない）
           setIsLoading(false)
         })
     }

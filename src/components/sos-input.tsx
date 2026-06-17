@@ -285,7 +285,7 @@ export function SOSInput() {
   }
 
   return (
-    <div className={`min-h-screen p-4 pb-32 ${isEmergencyMode ? 'bg-background pt-12' : 'bg-background'}`}>
+    <div className={`min-h-screen p-4 pb-48 ${isEmergencyMode ? 'bg-background pt-12' : 'bg-background'}`}>
       {/* Location Permission Prompt Modal */}
       {showLocationPrompt && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80">
