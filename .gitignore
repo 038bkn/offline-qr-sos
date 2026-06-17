@@ -25,3 +25,5 @@ skills-lock.json
 *.njsproj
 *.sln
 *.sw?
+
+.env
