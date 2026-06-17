@@ -1,45 +1,91 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAppStore, generateId, type UserProfile } from '@/lib/store'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
-import { ShieldCheck, Heart, Send, AlertTriangle, ChevronRight, User } from 'lucide-react'
+import { ShieldCheck, Heart, AlertTriangle, ChevronRight, User, Copy, Link as LinkIcon, HeartHandshake, Loader2, CheckCircle2 } from 'lucide-react'
 import { LineConnect } from './line-connect'
 
 const bloodTypes = ['A型', 'B型', 'O型', 'AB型', 'わからない']
 
 export function RegistrationForm() {
-  const { profile, setProfile, setMode, setCurrentView } = useAppStore()
+  const { profile, setProfile, setMode, setCurrentView, acceptInvite } = useAppStore()
+
+  // フォームの状態
   const [formData, setFormData] = useState({
     name: profile?.name || '',
     bloodType: profile?.bloodType || '',
     medicalConditions: profile?.medicalConditions || '',
-    emergencyName: profile?.emergencyContact.name || '',
-    emergencyEmail: profile?.emergencyContact.email || '',
-    emergencyLineId: profile?.emergencyContact.lineId || '',
+    // 手動入力の宛先は使わなくなったので空でOK
+    emergencyName: '',
+    emergencyEmail: '',
+    emergencyLineId: '',
   })
   const [isEditing, setIsEditing] = useState(!profile)
 
+  // 💡 URLから招待情報を読み取る（エラー回避の書き方）
+  const [inviteInfo] = useState<{ id: string; name: string } | null>(() => {
+    if (typeof window !== 'undefined') {
+      const searchParams = new URLSearchParams(window.location.search)
+      const senderId = searchParams.get('invite_id')
+      const senderName = searchParams.get('sender_name')
+      if (senderId && senderName) {
+        return { id: senderId, name: decodeURIComponent(senderName) }
+      }
+    }
+    return null
+  })
+
+  const [isAccepting, setIsAccepting] = useState(false)
+  const [isAccepted, setIsAccepted] = useState(false)
+
+  // URLを綺麗にする処理
+  useEffect(() => {
+    if (inviteInfo) {
+      window.history.replaceState({}, document.title, window.location.pathname)
+    }
+  }, [inviteInfo])
+
+  // 受信者が「参加する」を押した時の処理
+  const handleAcceptInvite = async () => {
+    if (!inviteInfo || !profile?.lineConnection) return
+    setIsAccepting(true)
+    try {
+      await acceptInvite(inviteInfo.id)
+      setIsAccepted(true)
+    } catch {
+      alert("エラーが発生しました。一度LINE連携をやり直してください。")
+    } finally {
+      setIsAccepting(false)
+    }
+  }
+
+  // 送信者が「招待リンクをコピー」を押した時の処理
+  const handleCopyInviteLink = () => {
+    if (!profile) return
+    const inviteUrl = `${window.location.origin}${window.location.pathname}?invite_id=${profile.id}&sender_name=${encodeURIComponent(profile.name)}`
+
+    navigator.clipboard.writeText(inviteUrl).then(() => {
+      alert('招待リンクをコピーしました！\nこれをLINEやメールで、SOSを受信してほしい人に送ってください。')
+    }).catch(() => alert('コピーに失敗しました。'))
+  }
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    
     const newProfile: UserProfile = {
       id: profile?.id || generateId(),
       name: formData.name,
       bloodType: formData.bloodType,
       medicalConditions: formData.medicalConditions,
       emergencyContact: {
-        name: formData.emergencyName,
-        email: formData.emergencyEmail,
-        lineId: formData.emergencyLineId,
+        name: '', email: '', lineId: '' // 手入力は廃止したため空
       },
       registeredAt: profile?.registeredAt || new Date().toISOString(),
     }
-    
     setProfile(newProfile)
     setIsEditing(false)
   }
@@ -49,6 +95,53 @@ export function RegistrationForm() {
     setCurrentView('sos-input')
   }
 
+  // 📱 【特別画面】受信者（家族など）が招待リンクを踏んで開いた時の専用画面
+  if (inviteInfo) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
+        <Card className="w-full max-w-md border-primary/50">
+          <CardHeader className="text-center">
+            <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
+              <HeartHandshake className="w-10 h-10 text-primary" />
+            </div>
+            <CardTitle className="text-xl text-primary">{inviteInfo.name} さんからの招待</CardTitle>
+            <CardDescription className="text-base mt-2">
+              災害時に「{inviteInfo.name}」さんから送られるSOSを受信してサポートするための招待です。
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {!profile?.lineConnection ? (
+              <div className="space-y-4">
+                <p className="text-sm font-bold text-center text-foreground">
+                  Step 1: あなたのLINEを連携してください
+                </p>
+                <LineConnect />
+              </div>
+            ) : isAccepted ? (
+              <div className="text-center space-y-4 py-4">
+                <CheckCircle2 className="w-16 h-16 text-[#06C755] mx-auto" />
+                <p className="font-bold text-lg">参加完了！</p>
+                <p className="text-sm text-muted-foreground">これで完了です。この画面を閉じて構いません。</p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="bg-muted p-4 rounded-lg text-center">
+                  <p className="text-sm text-muted-foreground mb-1">あなたの連携アカウント</p>
+                  <p className="font-bold">{profile.lineConnection.displayName}</p>
+                </div>
+                <Button onClick={handleAcceptInvite} disabled={isAccepting} className="w-full h-14 text-lg font-bold bg-[#06C755] hover:bg-[#06C755]/90 text-white">
+                  {isAccepting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : null}
+                  招待を承諾して参加する
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // 📱 --- 閲覧モード（トップ画面） ---
   if (profile && !isEditing) {
     return (
       <div className="min-h-screen bg-background p-4 pb-24">
@@ -62,7 +155,7 @@ export function RegistrationForm() {
             <p className="text-muted-foreground mt-2">災害時の代理送信システム</p>
           </div>
 
-          {/* ID Display Card */}
+          {/* ID Display Card（復活！） */}
           <Card className="border-2 border-primary bg-primary/5">
             <CardHeader className="text-center pb-2">
               <CardDescription>あなたの識別ID</CardDescription>
@@ -75,10 +168,26 @@ export function RegistrationForm() {
             </CardContent>
           </Card>
 
-          {/* LINE Connection */}
+          {/* LINE Connection（復活！） */}
           <LineConnect />
 
-          {/* Profile Summary */}
+          {/* 招待リンク機能 (新規追加分) */}
+          <Card className="border-border">
+            <CardContent className="pt-6">
+              <p className="text-sm font-bold mb-2 flex items-center gap-2">
+                <LinkIcon className="w-4 h-4 text-primary" />
+                SOSの受信者を招待する
+              </p>
+              <p className="text-xs text-muted-foreground mb-4">
+                災害時にあなたのSOSを受信してもらうための専用リンクを発行します。家族や担当者に送ってください。
+              </p>
+              <Button variant="outline" className="w-full" onClick={handleCopyInviteLink}>
+                <Copy className="w-4 h-4 mr-2" /> 招待リンクをコピーして共有
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Profile Summary（復活！） */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -103,18 +212,6 @@ export function RegistrationForm() {
                   <p className="font-medium">{profile.medicalConditions}</p>
                 </div>
               )}
-              <div className="pt-4 border-t">
-                <p className="text-sm text-muted-foreground mb-2 flex items-center gap-2">
-                  <Send className="w-4 h-4" />
-                  緊急連絡先
-                </p>
-                <div className="space-y-1 text-sm">
-                  <p className="font-medium">{profile.emergencyContact.name}</p>
-                  {profile.emergencyContact.email && (
-                    <p className="text-muted-foreground">{profile.emergencyContact.email}</p>
-                  )}
-                </div>
-              </div>
               <Button
                 variant="outline"
                 className="w-full mt-4"
@@ -145,6 +242,7 @@ export function RegistrationForm() {
     )
   }
 
+  // 📱 --- 編集・登録フォーム ---
   return (
     <div className="min-h-screen bg-background p-4 pb-24">
       <div className="max-w-md mx-auto space-y-6">
@@ -155,17 +253,8 @@ export function RegistrationForm() {
           </div>
           <h1 className="text-2xl font-bold text-foreground">SOS リレー</h1>
           <p className="text-muted-foreground mt-2 text-balance">
-            災害時に大切な人へあなたの無事を届けます
+            災害時に指定した連絡先へあなたの無事を届けます
           </p>
-        </div>
-
-        {/* Step indicator */}
-        <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
-          <span className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold">1</span>
-          <span>あなたの情報</span>
-          <ChevronRight className="w-4 h-4" />
-          <span className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">2</span>
-          <span>連絡先</span>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -189,51 +278,10 @@ export function RegistrationForm() {
             </CardContent>
           </Card>
 
-          {/* Step 2: Emergency Contact - Most Important */}
-          <Card className="border-primary/50 bg-primary/5">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Send className="w-5 h-5 text-primary" />
-                SOSを届ける人
-              </CardTitle>
-              <CardDescription>
-                災害時にあなたの安否を知らせたい人
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="emergencyName">名前</Label>
-                <Input
-                  id="emergencyName"
-                  value={formData.emergencyName}
-                  onChange={(e) => setFormData({ ...formData, emergencyName: e.target.value })}
-                  placeholder="例: 母、配偶者の名前など"
-                  required
-                  className="tap-target"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="emergencyEmail">メールアドレス</Label>
-                <Input
-                  id="emergencyEmail"
-                  type="email"
-                  value={formData.emergencyEmail}
-                  onChange={(e) => setFormData({ ...formData, emergencyEmail: e.target.value })}
-                  placeholder="example@email.com"
-                  className="tap-target"
-                />
-                <p className="text-xs text-muted-foreground">
-                  SOSはこのアドレスに送信されます
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* LINE Connection - Show after basic registration for new users */}
+          {/* LINE Connection */}
           {profile && <LineConnect />}
 
-          {/* Optional: Medical Info - Collapsed by default */}
+          {/* Medical Info */}
           <details className="group">
             <summary className="cursor-pointer list-none">
               <Card className="group-open:rounded-b-none">
@@ -286,9 +334,9 @@ export function RegistrationForm() {
             <Button
               type="submit"
               className="w-full h-14 text-lg font-bold tap-target"
-              disabled={!formData.name || !formData.emergencyName}
+              disabled={!formData.name}
             >
-              登録する
+              保存する
             </Button>
             
             <p className="text-xs text-center text-muted-foreground">

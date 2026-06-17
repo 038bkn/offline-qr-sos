@@ -4,20 +4,13 @@ import { fDB, fAuth } from './firebase'
 import { signInAnonymously } from 'firebase/auth'
 import { collection, doc, setDoc } from 'firebase/firestore'
 
-const FUNCTIONS_API_URL = " https://us-central1-sos-relay-app.cloudfunctions.net/exchangeLineCodeApi";
+const FUNCTIONS_API_URL = "https://us-central1-sos-relay-app.cloudfunctions.net/exchangeLineCodeApi";
 
 export type InjuryStatus = 'safe' | 'minor' | 'severe'
-
-export type SituationType = 
-  | 'trapped'
-  | 'immobile'
-  | 'needsRescue'
-  | 'needsMedical'
-  | 'needsWater'
-  | 'needsFood'
+export type SituationType = 'trapped' | 'immobile' | 'needsRescue' | 'needsMedical' | 'needsWater' | 'needsFood'
 
 export interface LineConnection {
-  linkedId: string // 暗号化されたショートID (サーバーから発行)
+  linkedId: string 
   linkedAt: string
   displayName?: string
 }
@@ -27,11 +20,7 @@ export interface UserProfile {
   name: string
   bloodType: string
   medicalConditions: string
-  emergencyContact: {
-    name: string
-    email: string
-    lineId: string
-  }
+  emergencyContact: { name: string; email: string; lineId: string }
   lineConnection?: LineConnection
   registeredAt: string
 }
@@ -39,12 +28,7 @@ export interface UserProfile {
 export interface SOSData {
   userId: string
   userName: string
-  location: {
-    latitude: number
-    longitude: number
-    accuracy: number
-    timestamp: string
-  } | null
+  location: { latitude: number; longitude: number; accuracy: number; timestamp: string } | null
   injuryStatus: InjuryStatus
   situations: SituationType[]
   memo: string
@@ -65,234 +49,115 @@ export type AppMode = 'peacetime' | 'emergency'
 export type ViewMode = 'registration' | 'sos-input' | 'qr-display' | 'scanner' | 'queue'
 
 interface AppState {
-  // App Mode
-  mode: AppMode
-  setMode: (mode: AppMode) => void
-  
-  // View/Navigation
-  currentView: ViewMode
-  setCurrentView: (view: ViewMode) => void
-  
-  // User Profile
+  mode: AppMode; setMode: (mode: AppMode) => void
+  currentView: ViewMode; setCurrentView: (view: ViewMode) => void
   profile: UserProfile | null
   setProfile: (profile: UserProfile) => Promise<void>
   clearProfile: () => Promise<void>
   setLineConnection: (connection: LineConnection) => Promise<void>
   clearLineConnection: () => Promise<void>
-  
-  // LINEログインを実行する関数
   linkLineAccount: (code: string, redirectUrl: string) => Promise<void>
   
-  // Current SOS (being created)
-  currentSOS: SOSData | null
-  setCurrentSOS: (sos: SOSData | null) => void
-  updateCurrentSOS: (updates: Partial<SOSData>) => void
-  
-  // SOS Queue (own + relayed)
-  queue: QueuedSOS[]
-  addToQueue: (sos: QueuedSOS) => Promise<void>
-  updateQueueItem: (id: string, updates: Partial<QueuedSOS>) => Promise<void>
-  removeFromQueue: (id: string) => Promise<void>
-  
-  // Network status
-  isOnline: boolean
-  setIsOnline: (online: boolean) => void
+  // 招待された人が「参加」した時に、FirebaseのDBに繋がりを記録する関数
+  acceptInvite: (senderId: string) => Promise<void>
 
-  initFromDB: () => Promise<void> // DBから読み込むための関数を追加
-  sendAllPendingItems: () => Promise<void> // 自動送信アクション
+  currentSOS: SOSData | null; setCurrentSOS: (sos: SOSData | null) => void; updateCurrentSOS: (updates: Partial<SOSData>) => void
+  queue: QueuedSOS[]; addToQueue: (sos: QueuedSOS) => Promise<void>; updateQueueItem: (id: string, updates: Partial<QueuedSOS>) => Promise<void>; removeFromQueue: (id: string) => Promise<void>
+  isOnline: boolean; setIsOnline: (online: boolean) => void
+  initFromDB: () => Promise<void> 
+  sendAllPendingItems: () => Promise<void> 
 }
 
-// ユーザー識別用ランダムID生成
 export const generateId = () => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-  const prefix = 'U'
   const code = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
-  return `${prefix}-${code}`
+  return `U-${code}`
 }
 
-// キュー用ユニークID生成
-export const generateQueueId = () => {
-  return `Q-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-}
+export const generateQueueId = () => `Q-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
 
-// useAppStore を persist なしで再定義し、内部で Dexie(db) を操作する
 export const useAppStore = create<AppState>()((set, get) => ({
-  mode: 'peacetime',
-  setMode: (mode) => set({ mode }),
-  
-  currentView: 'registration',
-  setCurrentView: (view) => set({ currentView: view }),
-  
+  mode: 'peacetime', setMode: (mode) => set({ mode }),
+  currentView: 'registration', setCurrentView: (view) => set({ currentView: view }),
   profile: null,
-  setProfile: async (profile) => {
-    await db.myProfile.put(profile) // データベースに保存
-    set({ profile }) // 画面にも反映
-  },
-  clearProfile: async () => {
-    await db.myProfile.clear() // データベースから削除
-    set({ profile: null })
-  },
+  setProfile: async (profile) => { await db.myProfile.put(profile); set({ profile }) },
+  clearProfile: async () => { await db.myProfile.clear(); set({ profile: null }) },
   setLineConnection: async (connection) => {
     const profile = get().profile
-    if (profile) {
-      const updated = { ...profile, lineConnection: connection }
-      await db.myProfile.put(updated)
-      set({ profile: updated })
-    }
+    if (profile) { const updated = { ...profile, lineConnection: connection }; await db.myProfile.put(updated); set({ profile: updated }) }
   },
   clearLineConnection: async () => {
     const profile = get().profile
-    if (profile) {
-      const updated = { ...profile, lineConnection: undefined }
-      await db.myProfile.put(updated)
-      set({ profile: updated })
-    }
+    if (profile) { const updated = { ...profile, lineConnection: undefined }; await db.myProfile.put(updated); set({ profile: updated }) }
   },
 
-  // LINEから返ってきた一次コードをサーバーに送って、名前とIDを貰って保存する処理
   linkLineAccount: async (code, redirectUrl) => {
-    const res = await fetch(FUNCTIONS_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, redirectUrl })
-    })
-    
-    if (!res.ok) {
-      throw new Error('LINE連携の通信に失敗しました')
-    }
-    
-    const data = await res.json() as { userId: string; displayName: string; pictureUrl?: string }
-    
-    const connection: LineConnection = {
-      linkedId: data.userId,
-      linkedAt: new Date().toISOString(),
-      displayName: data.displayName,
-    }
-
+    const res = await fetch(FUNCTIONS_API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, redirectUrl }) })
+    if (!res.ok) throw new Error('LINE連携の通信に失敗しました')
+    const data = await res.json() as { userId: string; displayName: string }
+    const connection: LineConnection = { linkedId: data.userId, linkedAt: new Date().toISOString(), displayName: data.displayName }
     const profile = get().profile
     if (profile) {
-      const updated = { 
-        ...profile, 
-        lineConnection: connection,
-        name: profile.name || data.displayName // プロフィール名が空ならLINE名を自動セット
-      }
-      await db.myProfile.put(updated)
-      set({ profile: updated })
+      const updated = { ...profile, lineConnection: connection, name: profile.name || data.displayName }
+      await db.myProfile.put(updated); set({ profile: updated })
     }
   },
-  
-  currentSOS: null,
-  setCurrentSOS: (sos) => set({ currentSOS: sos }),
-  updateCurrentSOS: (updates) => set((state) => ({
-    currentSOS: state.currentSOS ? { ...state.currentSOS, ...updates } : null
-  })),
-  
+
+  // ★【追加】ここでFirebaseの「sos_connections」に宛先を保存します
+  acceptInvite: async (senderId) => {
+    const profile = get().profile
+    if (!profile?.lineConnection) throw new Error("LINE連携がされていません")
+    await setDoc(doc(collection(fDB, "sos_connections"), senderId), {
+      lineId: profile.lineConnection.linkedId,
+      receiverName: profile.lineConnection.displayName || profile.name,
+      createdAt: new Date().toISOString()
+    })
+  },
+
+  currentSOS: null, setCurrentSOS: (sos) => set({ currentSOS: sos }),
+  updateCurrentSOS: (updates) => set((state) => ({ currentSOS: state.currentSOS ? { ...state.currentSOS, ...updates } : null })),
   queue: [],
   addToQueue: async (sos) => {
-    await db.sosQueue.put(sos) // データベースに保存
-    set((state) => ({ queue: [...state.queue, sos] }))
-    // もしSOS作成/追加時にオンラインなら、自動送信を試みる
-    if (get().isOnline) {
-      get().sendAllPendingItems()
-    } else {
-      if ('serviceWorker' in navigator && 'SyncManager' in window) {
-        try {
-          interface serviceWorkerRegistrationWithSync extends ServiceWorkerRegistration {
-            sync: { register(tag: string): Promise<void> };
-          }
-          const registration = (await navigator.serviceWorker.ready) as unknown as serviceWorkerRegistrationWithSync;
-          await registration.sync.register('sync-sos-queue');
-          console.log('[Background Sync] 自動送信予約に成功')
-        } catch (err) {
-          console.error('[Background Sync] 自動送信予約に失敗:', err);
-        }
-      }
-    }
+    await db.sosQueue.put(sos); set((state) => ({ queue: [...state.queue, sos] }))
+    if (get().isOnline) { get().sendAllPendingItems() }
   },
   updateQueueItem: async (id, updates) => {
-    await db.sosQueue.update(id, updates) // データベースを更新
-    set((state) => ({
-      queue: state.queue.map((item) => item.id === id ? { ...item, ...updates } : item)
-    }))
+    await db.sosQueue.update(id, updates)
+    set((state) => ({ queue: state.queue.map((item) => item.id === id ? { ...item, ...updates } : item) }))
   },
   removeFromQueue: async (id) => {
-    await db.sosQueue.delete(id) // データベースから削除
-    set((state) => ({
-      queue: state.queue.filter((item) => item.id !== id)
-    }))
+    await db.sosQueue.delete(id)
+    set((state) => ({ queue: state.queue.filter((item) => item.id !== id) }))
   },
   
   isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
   setIsOnline: (online) => {
-    const wasOffline = !get().isOnline
-    set({ isOnline: online })
-
-    // オフラインからオンラインに復帰した瞬間、自動送信を開始
-    if (online && wasOffline) {
-      get().sendAllPendingItems()
-    }
+    const wasOffline = !get().isOnline; set({ isOnline: online })
+    if (online && wasOffline) { get().sendAllPendingItems() }
   },
 
-  // アプリ起動時にDexieデータベースからデータを一気に読み込む関数
   initFromDB: async () => {
-    const profiles = await db.myProfile.toArray()
-    const profile = profiles.length > 0 ? profiles[0] : null
+    const profiles = await db.myProfile.toArray(); const profile = profiles.length > 0 ? profiles[0] : null
     const queue = await db.sosQueue.toArray()
-    
-    set({ 
-      profile, 
-      queue,
-      currentView: 'registration' 
-    })
-
-    // アプリが起動した瞬間に、Firebaseへの匿名ログイン
-    try {
-      await signInAnonymously(fAuth)
-      console.log("[Firebase] 匿名ログインに成功")
-    } catch (err) {
-      console.error("[Firebase] 匿名ログイン失敗：", err)
-    }
-
-    // 起動時にすでにオンライン、かつ未送信があるなら自動送信
-    if (navigator.onLine && queue.some(q => q.status === 'pending')) {
-      get().sendAllPendingItems()
-    }
+    set({ profile, queue, currentView: 'registration' })
+    try { await signInAnonymously(fAuth) } catch (err) { console.error(err) }
+    if (navigator.onLine && queue.some(q => q.status === 'pending')) { get().sendAllPendingItems() }
   },
 
-  // 溜まっているSOSデータを自動で順番に送信する関数
   sendAllPendingItems: async () => {
     const { queue, updateQueueItem } = get()
     const pendingItems = queue.filter(item => item.status === 'pending')
-    
     if (pendingItems.length === 0) return
-
-    console.log(`[同期開始] オンライン復帰を検知。Firebaseへ${pendingItems.length}件のSOSを送信します...`)
 
     for (const item of pendingItems) {
       try {
-        // Firebase Firestore の「sos_signals」テーブルに送信
         await setDoc(doc(collection(fDB, "sos_signals"), item.id), {
-          id: item.id,
-          status: "sent", 
-          isOwn: item.isOwn,
-          relayedFrom: item.relayedFrom || "unknown", 
-          createdAt: item.createdAt, 
-          sentAt: new Date().toISOString(),
-          // SOSのコアデータ（名前、GPS、ケガの状況、メモなどすべて）
-          sosData: item.sosData
+          id: item.id, status: "sent", isOwn: item.isOwn, relayedFrom: item.relayedFrom || "unknown", 
+          createdAt: item.createdAt, sentAt: new Date().toISOString(), sosData: item.sosData
         })
-
         await new Promise(resolve => setTimeout(resolve, 1200))
-
-        // クラウドへの送信が成功したら、スマホ内の IndexedDB も「送信済み」に書き換える
-        await updateQueueItem(item.id, {
-          status: 'sent',
-          sentAt: new Date().toISOString()
-        })
-        console.log(`[同期成功] ${item.sosData.userName}さんのSOSが、サーバーに届きました！`)
-      } catch (error) {
-        console.error(`[同期エラー] ID: ${item.id} の送信に失敗しました：`, error)
-      }
+        await updateQueueItem(item.id, { status: 'sent', sentAt: new Date().toISOString() })
+      } catch (error) { console.error(error) }
     }
   }
 }))
