@@ -191,7 +191,7 @@ export function QRScanner() {
     const injury = injuryLabels[scannedSOS.injuryStatus]
     
     return (
-      <div className={`min-h-screen p-4 pb-32 ${isEmergencyMode ? 'bg-background pt-12' : 'bg-background'}`}>
+      <div className={`min-h-screen p-4 pb-48 ${isEmergencyMode ? 'bg-background pt-12' : 'bg-background'}`}>
         <div className="max-w-md mx-auto space-y-6">
           <Button
             variant="ghost"
@@ -296,7 +296,7 @@ export function QRScanner() {
 
   // Scanner view
   return (
-    <div className={`min-h-screen p-4 pb-32 ${isEmergencyMode ? 'bg-background pt-12' : 'bg-background'}`}>
+    <div className={`min-h-screen p-4 pb-48 ${isEmergencyMode ? 'bg-background pt-12' : 'bg-background'}`}>
       <div className="max-w-md mx-auto space-y-6">
         <Button
           variant="ghost"
